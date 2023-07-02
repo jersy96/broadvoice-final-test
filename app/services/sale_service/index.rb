@@ -12,36 +12,9 @@ class SaleService::Index
 
   def call
     @sales = Sale.all.includes(:salesperson, :customer, :product)
-    if @search_term.present?
-      @sales = @sales.joins(
-        'INNER JOIN users AS salespeople ON salespeople.id = sales.salesperson_id',
-        'INNER JOIN users AS customers ON customers.id = sales.customer_id',
-        :product
-      )
-      if @start_date.present? || @end_date.present?
-        @sales = @sales.where(
-          %{
-            #{search_term_conditions}
-            OR #{date_conditions}
-          }, {
-            search_term: "%#{ Sale.sanitize_sql_like(@search_term) }%",
-            start_date: @start_date,
-            end_date: @end_date,
-          }
-        )
-      else
-        @sales = @sales.where(
-          search_term_conditions,
-          { search_term: "%#{ Sale.sanitize_sql_like(@search_term) }%" }
-        )
-      end
-    elsif @start_date.present? || @end_date.present?
-      @sales = @sales.where(
-        date_conditions,
-        { start_date: @start_date, end_date: @end_date }
-      )
-    end
-    return @sales.limit(@per_page).offset(@offset).order('sales.created_at')
+    apply_filters if can_apply_filters
+    apply_pagination
+    return @sales.order('sales.created_at')
   end
 
   private
@@ -58,6 +31,32 @@ class SaleService::Index
       @start_date = nil
       @end_date = nil
     end
+  end
+
+  def can_apply_filters
+    @search_term.present? || @start_date.present? || @end_date.present?
+  end
+
+  def apply_filters
+    conditions = nil
+    if @search_term.present?
+      @sales = @sales.joins(
+        'INNER JOIN users AS salespeople ON salespeople.id = sales.salesperson_id',
+        'INNER JOIN users AS customers ON customers.id = sales.customer_id',
+        :product
+      )
+      conditions = search_term_conditions
+      conditions += " OR #{date_conditions}" if @start_date.present? || @end_date.present?
+    elsif @start_date.present? || @end_date.present?
+      conditions = date_conditions
+    end
+    return if conditions.blank?
+
+    @sales = @sales.where(conditions, get_filter_variables)
+  end
+
+  def apply_pagination
+    @sales = @sales.limit(@per_page).offset(@offset)
   end
 
   def search_term_conditions
@@ -78,5 +77,15 @@ class SaleService::Index
     elsif @end_date.present?
       "sales.created_at <= :end_date"
     end
+  end
+
+  def get_filter_variables
+    filter_variables = {}
+    if @search_term.present?
+      filter_variables[:search_term] = "%#{ Sale.sanitize_sql_like(@search_term) }%"
+    end
+    filter_variables[:start_date] = @start_date if @start_date.present?
+    filter_variables[:end_date] = @end_date if @end_date.present?
+    filter_variables
   end
 end
