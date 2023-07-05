@@ -11,10 +11,10 @@ class SaleService::Index
   end
 
   def call
-    @sales = Sale.all.includes(:salesperson, :customer, :product)
+    @sales = Sale.all
     apply_filters if can_apply_filters
     apply_pagination
-    return @sales.order('sales.created_at')
+    return @sales.includes(:salesperson, :customer, :product).order('sales.created_at')
   end
 
   private
@@ -38,54 +38,38 @@ class SaleService::Index
   end
 
   def apply_filters
-    conditions = nil
-    if @search_term.present?
-      @sales = @sales.joins(
-        'INNER JOIN users AS salespeople ON salespeople.id = sales.salesperson_id',
-        'INNER JOIN users AS customers ON customers.id = sales.customer_id',
-        :product
-      )
-      conditions = search_term_conditions
-      conditions += " OR #{date_conditions}" if @start_date.present? || @end_date.present?
-    elsif @start_date.present? || @end_date.present?
-      conditions = date_conditions
-    end
-    return if conditions.blank?
+    @sales = @sales.ransack(build_ransack_query).result
+  end
 
-    @sales = @sales.where(conditions, get_filter_variables)
+  def build_ransack_query
+    conditions = []
+    if @search_term.present?
+      conditions = [
+        { salesperson_name_cont: @search_term },
+        { customer_email_cont: @search_term },
+        { product_code_cont: @search_term },
+        { city_cont: @search_term },
+        { state_cont: @search_term },
+      ]
+    end
+
+    conditions << date_conditions if date_conditions.present?
+
+    { groupings: conditions, m: 'or' }
   end
 
   def apply_pagination
     @sales = @sales.limit(@per_page).offset(@offset)
   end
 
-  def search_term_conditions
-    %{
-      LOWER(salespeople.name) LIKE :search_term
-      OR LOWER(customers.email) LIKE :search_term
-      OR LOWER(products.code) LIKE :search_term
-      OR LOWER(sales.city) LIKE :search_term
-      OR LOWER(sales.state) LIKE :search_term
-    }
-  end
-
   def date_conditions
-    if @start_date.present? && @end_date.present?
-      "sales.created_at BETWEEN :start_date AND :end_date"
+    @date_conditions ||= if @start_date.present? && @end_date.present?
+      { created_at_gteq: @start_date, created_at_lteq: @end_date }
     elsif @start_date.present?
-      "sales.created_at >= :start_date"
+      { created_at_gteq: @start_date }
     elsif @end_date.present?
-      "sales.created_at <= :end_date"
+      { created_at_lteq: @end_date }
     end
-  end
-
-  def get_filter_variables
-    filter_variables = {}
-    if @search_term.present?
-      filter_variables[:search_term] = "%#{ Sale.sanitize_sql_like(@search_term) }%"
-    end
-    filter_variables[:start_date] = @start_date if @start_date.present?
-    filter_variables[:end_date] = @end_date if @end_date.present?
-    filter_variables
+    @date_conditions
   end
 end
