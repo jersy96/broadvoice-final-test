@@ -10,4 +10,9 @@ class Sale < ApplicationRecord
   def self.ransackable_associations(auth_object = nil)
     ["customer", "salesperson", "product"]
   end
+
+  def calculate_profit
+    return nil if price.blank?
+    price - product.cost
+  end
 end

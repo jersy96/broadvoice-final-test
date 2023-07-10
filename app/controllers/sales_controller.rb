@@ -7,4 +7,25 @@ class SalesController < ApplicationController
     ).call
     render status: :ok, json: @sales, each_serializer: SaleSerializer
   end
+
+  def create
+    @sale = Sale.new(create_params)
+    if @sale.save
+      render status: :ok, json: @sale, serializer: SaleSerializer
+    else
+      render status: :unprocessable_entity, json: @sale.errors.messages
+    end
+  end
+
+  private
+  def create_params
+    params.require(:sale).permit(
+      :customer_id,
+      :salesperson_id,
+      :product_id,
+      :city,
+      :state,
+      :price,
+    )
+  end
 end
